@@ -46,6 +46,8 @@ export type CurrencyInsert = {
   simbolo: string
   es_base: boolean
   tipo_cambio_base: number | null
+  tipo_cambio_fuente?: string | null
+  tipo_cambio_actualizado_en?: string | null
 }
 
 export type AuthenticatedUserProfile = {
@@ -227,11 +229,12 @@ export async function deleteMovement(id: DatabaseId) {
 
 export async function listAccounts(): Promise<Account[]> {
   const supabase = client()
-  const [rows, movementRows] = await Promise.all([
+  const [rows, movementRows, transferRows] = await Promise.all([
     dataOrThrow(supabase.from('cuenta')
     .select('id,nombre,banco_id,numero_cuenta,saldo,moneda_id,estado,banco(nombre),moneda(nombre,sigla,simbolo,es_base,tipo_cambio_base)')
     .order('nombre')),
     dataOrThrow(supabase.from('movimiento').select('cuenta_id,tipo,monto')),
+    dataOrThrow(supabase.from('transferencia').select('cuenta_origen_id,cuenta_destino_id,monto')),
   ])
   const movementTotals = new Map<string, number>()
   for (const movement of movementRows) {
@@ -240,11 +243,22 @@ export async function listAccounts(): Promise<Account[]> {
     const amount = number(movement.monto)
     if (!Number.isFinite(amount)) throw new Error(`El movimiento asociado a la cuenta ${accountId} tiene un monto inválido.`)
     const type = text(movement.tipo).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    if (type === 'transfer' || type === 'transferencia') continue
     if (type !== 'ingreso' && type !== 'gasto') {
       throw new Error(`El movimiento asociado a la cuenta ${accountId} tiene un tipo no reconocido: ${text(movement.tipo)}.`)
     }
     const signedAmount = type === 'ingreso' ? amount : -amount
     movementTotals.set(accountId, (movementTotals.get(accountId) ?? 0) + signedAmount)
+  }
+  const transferTotals = new Map<string, number>()
+  for (const transfer of transferRows) {
+    const originId = text(transfer.cuenta_origen_id)
+    const destinationId = text(transfer.cuenta_destino_id)
+    const amount = number(transfer.monto)
+    if (!originId || !destinationId) throw new Error('Se encontró una transferencia con una cuenta incompleta; no se pudo calcular el saldo.')
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error(`La transferencia de la cuenta ${originId} tiene un monto inválido.`)
+    transferTotals.set(originId, (transferTotals.get(originId) ?? 0) - amount)
+    transferTotals.set(destinationId, (transferTotals.get(destinationId) ?? 0) + amount)
   }
 
   return rows.map((row, index) => {
@@ -258,7 +272,7 @@ export async function listAccounts(): Promise<Account[]> {
       bankId: text(row.banco_id),
       bank: text(bank.nombre, 'Banco'),
       number: text(row.numero_cuenta),
-      balance: number(row.saldo) + (movementTotals.get(id) ?? 0),
+      balance: number(row.saldo) + (movementTotals.get(id) ?? 0) + (transferTotals.get(id) ?? 0),
       currencyId: text(row.moneda_id),
       currency: code,
       symbol: text(currency.simbolo, `${code} `),
@@ -331,7 +345,7 @@ export async function deleteBank(id: DatabaseId) {
 }
 
 export async function listCurrencies(): Promise<Currency[]> {
-  const rows = await dataOrThrow(client().from('moneda').select('id,nombre,sigla,simbolo,es_base,tipo_cambio_base').order('nombre'))
+  const rows = await dataOrThrow(client().from('moneda').select('id,nombre,sigla,simbolo,es_base,tipo_cambio_base,tipo_cambio_fuente,tipo_cambio_actualizado_en').order('nombre'))
   return rows.map((row) => ({
     id: text(row.id),
     name: text(row.nombre),
@@ -339,6 +353,8 @@ export async function listCurrencies(): Promise<Currency[]> {
     symbol: text(row.simbolo),
     isBase: row.es_base === true,
     rateToBase: row.tipo_cambio_base == null ? null : number(row.tipo_cambio_base),
+    rateSource: text(row.tipo_cambio_fuente) || (row.tipo_cambio_base == null ? undefined : 'Catálogo'),
+    rateUpdatedAt: row.tipo_cambio_actualizado_en == null ? null : text(row.tipo_cambio_actualizado_en),
   }))
 }
 

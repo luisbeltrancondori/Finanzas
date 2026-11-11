@@ -1,7 +1,8 @@
 import { Bell, Check, ChevronDown, Moon, Search, Sun, X } from 'lucide-react'
 import { useState } from 'react'
+import CurrencyTicker from './CurrencyTicker'
 import type { AuthenticatedUserProfile } from '../services/financeService'
-import type { Category, Obligation } from '../types/finance'
+import type { Category, Currency, Obligation } from '../types/finance'
 
 type Theme = 'light' | 'dark'
 
@@ -17,11 +18,15 @@ type Props = {
   onMarkObligationPaid: (obligation: Obligation) => void
   theme: Theme
   onToggleTheme: () => void
+  currencies: Currency[]
+  baseCurrency?: Currency
+  showCurrencyTicker: boolean
+  onCurrencyRatesUpdated: (currencies: Currency[]) => void
 }
 
 const dateOnly = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 
-export default function Header({ title, subtitle, search, profile, onSearch, onOpenProfile, obligations, categories, onMarkObligationPaid, theme, onToggleTheme }: Props) {
+export default function Header({ title, subtitle, search, profile, onSearch, onOpenProfile, obligations, categories, onMarkObligationPaid, theme, onToggleTheme, currencies, baseCurrency, showCurrencyTicker, onCurrencyRatesUpdated }: Props) {
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [todayKey] = useState(() => dateOnly(new Date()))
   const today = new Date(`${todayKey}T12:00:00`)
@@ -65,6 +70,7 @@ export default function Header({ title, subtitle, search, profile, onSearch, onO
             </div>
           </section>}
         </div>
+        {showCurrencyTicker && <CurrencyTicker currencies={currencies} baseCurrency={baseCurrency} compact onRatesUpdated={onCurrencyRatesUpdated} />}
         <button className="topbar-avatar" onClick={onOpenProfile} aria-label="Editar perfil" title="Editar perfil">
           <span>{profile.avatarUrl ? <img src={profile.avatarUrl} alt="" /> : profile.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</span><ChevronDown size={14} />
         </button>

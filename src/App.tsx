@@ -1,4 +1,4 @@
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Banknote, BriefcaseBusiness, CarFront, CircleDollarSign, CreditCard, Ellipsis, FileSpreadsheet, FileText, Landmark, Plus, Settings2, ShieldAlert, ShoppingBag, Sparkles, Trash2, Utensils, Wallet, Zap } from 'lucide-react'
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Banknote, BriefcaseBusiness, CarFront, CircleDollarSign, CreditCard, Ellipsis, Eye, FileSpreadsheet, FileText, Landmark, Pencil, Plus, Settings2, ShieldAlert, ShoppingBag, Sparkles, Trash2, Utensils, Wallet, X, Zap } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import FinanceModal from './components/FinanceModal'
@@ -13,7 +13,7 @@ import TransactionsTable from './components/TransactionsTable'
 import UsersView from './components/UsersView'
 import type { Account, Bank, Category, Currency, ModalKind, Movement, Obligation, PageKey, PaymentType, Transfer } from './types/finance'
 import type { AuthenticatedUserProfile, MovementReceipt } from './services/financeService'
-import { convertAmount, getCurrencyRateToBase, movementRateToBase } from './services/currencyService'
+import { applyCurrencyRates, convertAmount, getCurrencyRateToBase, movementRateToBase, roundExchangeRate } from './services/currencyService'
 import { exportMovementsToExcel } from './services/movementExportService'
 import { listObligations, updateObligationStatus } from './services/obligationService'
 import { supabase } from './lib/supabase'
@@ -39,6 +39,12 @@ const pageDetails: Record<PageKey, { title: string; subtitle: string }> = {
 const CashflowChart = lazy(() => import('./components/CashflowChart'))
 const loadFinanceService = () => import('./services/financeService')
 const loadMovementReceipts = (movementId: Movement['id']) => loadFinanceService().then((api) => api.listMovementReceipts(movementId))
+const operatingMovementType = (movement: Movement): Movement['type'] | null => {
+  const type = String(movement.type).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  if (type === 'ingreso') return 'Ingreso'
+  if (type === 'gasto') return 'Gasto'
+  return null
+}
 const referenceDate = new Date()
 const recentMonths = Array.from({ length: 6 }, (_, index) => {
   const date = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - 5 + index, 1)
@@ -191,6 +197,7 @@ function FinanceDashboard({ profile, onProfileUpdated, permissions, onSignOut, a
   const [modal, setModal] = useState<ModalKind | null>(null)
   const [profileModalOpen, setProfileModalOpen] = useState(false)
   const [editingMovement, setEditingMovement] = useState<Movement | null>(null)
+  const [editingTransfer, setEditingTransfer] = useState<Transfer | null>(null)
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState('Todos')
   const [filterCategory, setFilterCategory] = useState('')
@@ -220,6 +227,9 @@ function FinanceDashboard({ profile, onProfileUpdated, permissions, onSignOut, a
   const canCreateMovement = hasPermission('movimiento.crear', 'movimiento.registrar', 'movimiento.nuevo')
   const canEditMovement = hasPermission('movimiento.editar', 'movimiento.actualizar')
   const canDeleteMovement = hasPermission('movimiento.eliminar', 'movimiento.borrar')
+  const canCreateTransfer = hasPermission('transferencia.crear', 'transferencia.registrar', 'transferencia.nuevo', 'transferencia.gestionar')
+  const canEditTransfer = hasPermission('transferencia.editar', 'transferencia.actualizar', 'transferencia.gestionar')
+  const canDeleteTransfer = hasPermission('transferencia.eliminar', 'transferencia.borrar', 'transferencia.gestionar')
 
   const loadData = useCallback((): Promise<boolean> => {
     if (loadRequest.current) return loadRequest.current
@@ -239,7 +249,7 @@ function FinanceDashboard({ profile, onProfileUpdated, permissions, onSignOut, a
         setAccounts(nextAccounts)
         setCategories(nextCategories)
         setBanks(nextBanks)
-        setCurrencies(nextCurrencies)
+        setCurrencies(await applyCurrencyRates(nextCurrencies))
         setPaymentTypes(nextPayments)
         setMovements(nextMovements)
         if (nextObligations) {
@@ -272,6 +282,30 @@ function FinanceDashboard({ profile, onProfileUpdated, permissions, onSignOut, a
   // The initial effect loads the remote database state on app mount.
   // oxlint-disable-next-line react/set-state-in-effect
   useEffect(() => { void loadData() }, [loadData])
+
+  useEffect(() => {
+    const realtimeClient = supabase
+    if (!realtimeClient) return
+    let refreshTimer: number | undefined
+    const refreshFromRealtime = () => {
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(() => { void loadData() }, 250)
+    }
+    const channel = realtimeClient.channel(`financial-data-${profile.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'movimiento' }, refreshFromRealtime)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transferencia' }, refreshFromRealtime)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cuenta' }, refreshFromRealtime)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'moneda' }, refreshFromRealtime)
+      .subscribe((status, error) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('No se pudo mantener la sincronización financiera en tiempo real:', error ?? status)
+        }
+      })
+    return () => {
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
+      void realtimeClient.removeChannel(channel)
+    }
+  }, [loadData, profile.id])
 
   const notify = (message: string) => {
     setToast(message)
@@ -323,7 +357,7 @@ function FinanceDashboard({ profile, onProfileUpdated, permissions, onSignOut, a
   }), [movements, search, filterType, filterCategory, filterAccount, dateFrom, dateTo])
 
   const currentPage = pageDetails[page]
-  const pageAction: Record<PageKey, ModalKind | null> = { dashboard: canCreateMovement ? 'movement' : null, movements: canCreateMovement ? 'movement' : null, transfers: 'transfer', accounts: 'account', calendar: null, catalogs: 'category', users: null, permissions: null }
+  const pageAction: Record<PageKey, ModalKind | null> = { dashboard: canCreateMovement ? 'movement' : null, movements: canCreateMovement ? 'movement' : null, transfers: canCreateTransfer ? 'transfer' : null, accounts: 'account', calendar: null, catalogs: 'category', users: null, permissions: null }
   const actionLabel: Record<PageKey, string> = { dashboard: 'Nuevo movimiento', movements: 'Nuevo movimiento', transfers: 'Nueva transferencia', accounts: 'Agregar cuenta', calendar: 'Nueva obligación', catalogs: 'Nueva categoría', users: 'Nuevo usuario', permissions: 'Configurar permisos' }
 
   const handleSave = async (kind: ModalKind, values: Record<string, string | number | File | undefined>) => {
@@ -352,7 +386,7 @@ function FinanceDashboard({ profile, onProfileUpdated, permissions, onSignOut, a
         moneda_id: account.currencyId,
         categoria_id: category.id,
         tipo_pago_id: String(values.payment),
-        tipo_cambio: Number(values.exchangeRate),
+        tipo_cambio: roundExchangeRate(Number(values.exchangeRate)),
       }
       let movement: { id: string }
       if (editingMovement) {
@@ -371,22 +405,30 @@ function FinanceDashboard({ profile, onProfileUpdated, permissions, onSignOut, a
         }
       }
     } else if (kind === 'transfer') {
+      if (editingTransfer ? !canEditTransfer : !canCreateTransfer) throw new Error('No tienes permiso para gestionar transferencias.')
       const origin = accounts.find((item) => item.id === String(values.from))
       const destination = accounts.find((item) => item.id === String(values.to))
       const amount = Number(values.amount)
       if (!origin || !destination) throw new Error('Selecciona cuentas válidas.')
       if (origin.id === destination.id) throw new Error('El origen y el destino deben ser cuentas distintas.')
       if (origin.currencyId !== destination.currencyId) throw new Error('Las cuentas deben usar la misma moneda para transferir.')
-      if (amount > origin.balance) throw new Error('El saldo de la cuenta de origen es insuficiente.')
-      const userId = await api.getAuthenticatedUserId()
-      await api.createTransfer({
+      const availableBalance = origin.balance
+        + (editingTransfer?.fromId === origin.id ? editingTransfer.amount : 0)
+        - (editingTransfer?.toId === origin.id ? editingTransfer.amount : 0)
+      if (amount > availableBalance) throw new Error('El saldo de la cuenta de origen es insuficiente.')
+      const transferValues = {
         cuenta_origen_id: origin.id,
         cuenta_destino_id: destination.id,
-        monto: amount,
+        monto: roundExchangeRate(amount),
         fecha: String(values.date),
         descripcion: String(values.description),
-        user_id: userId,
-      })
+      }
+      if (editingTransfer) {
+        await api.updateTransfer(editingTransfer.id, transferValues)
+      } else {
+        const userId = await api.getAuthenticatedUserId()
+        await api.createTransfer({ ...transferValues, user_id: userId })
+      }
     } else if (kind === 'account') {
       await api.createAccount({
         nombre: String(values.name),
@@ -413,12 +455,13 @@ function FinanceDashboard({ profile, onProfileUpdated, permissions, onSignOut, a
         sigla: String(values.code).trim().toUpperCase(),
         simbolo: String(values.symbol),
         es_base: false,
-        tipo_cambio_base: Number(values.rateToBase),
+        tipo_cambio_base: roundExchangeRate(Number(values.rateToBase)),
       })
     }
     const refreshed = await loadData()
     setModal(null)
     setEditingMovement(null)
+    setEditingTransfer(null)
     notify(receiptUploadError
       ? `Movimiento guardado, pero no se pudo subir el comprobante: ${receiptUploadError}`
       : refreshed ? 'Cambios guardados correctamente.' : 'Registro guardado, pero la vista no pudo actualizarse. Reintenta la carga.')
@@ -450,7 +493,11 @@ function FinanceDashboard({ profile, onProfileUpdated, permissions, onSignOut, a
 
   const updateCurrencyRate = async (currency: Currency, rateToBase: number) => {
     try {
-      await (await loadFinanceService()).updateCurrency(currency.id, { tipo_cambio_base: rateToBase })
+      await (await loadFinanceService()).updateCurrency(currency.id, {
+        tipo_cambio_base: roundExchangeRate(rateToBase),
+        tipo_cambio_fuente: 'Manual (administrador)',
+        tipo_cambio_actualizado_en: new Date().toISOString(),
+      })
       const refreshed = await loadData()
       notify(refreshed ? `Tipo de cambio de ${currency.code} actualizado.` : 'Tasa guardada; no se pudo actualizar la vista.')
     } catch (error) {
@@ -474,6 +521,7 @@ function FinanceDashboard({ profile, onProfileUpdated, permissions, onSignOut, a
     const action = pageAction[page]
     if (action) {
       setEditingMovement(null)
+      setEditingTransfer(null)
       setModal(action)
     }
   }
@@ -481,6 +529,12 @@ function FinanceDashboard({ profile, onProfileUpdated, permissions, onSignOut, a
     if (!canEditMovement) return
     setEditingMovement(movement)
     setModal('movement')
+  }
+  const handleEditTransfer = (transfer: Transfer) => {
+    if (!canEditTransfer) return
+    setEditingMovement(null)
+    setEditingTransfer(transfer)
+    setModal('transfer')
   }
   const canAccessPage = (nextPage: PageKey) => {
     if (nextPage === 'dashboard') return true
@@ -508,7 +562,7 @@ function FinanceDashboard({ profile, onProfileUpdated, permissions, onSignOut, a
     <div className="app-shell" data-theme={theme}>
       <Sidebar page={page} profile={profile} canAccessPage={canAccessPage} onOpenProfile={() => setProfileModalOpen(true)} onNavigate={handleNavigate} onSignOut={onSignOut} connectionStatus={loadError ? 'Conexión pendiente' : loading ? 'Sincronizando con Supabase' : 'Conectado a Supabase'} />
       <main className="main-area">
-        <Header title={currentPage.title} subtitle={currentPage.subtitle} search={search} profile={profile} obligations={obligations} categories={categories} onMarkObligationPaid={(obligation) => void markObligationPaid(obligation)} onSearch={setSearch} onOpenProfile={() => setProfileModalOpen(true)} theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} />
+        <Header title={currentPage.title} subtitle={currentPage.subtitle} search={search} profile={profile} obligations={obligations} categories={categories} onMarkObligationPaid={(obligation) => void markObligationPaid(obligation)} onSearch={setSearch} onOpenProfile={() => setProfileModalOpen(true)} theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} currencies={currencies} baseCurrency={baseCurrency} showCurrencyTicker onCurrencyRatesUpdated={setCurrencies} />
         {authError && <div className="data-error-banner" role="alert"><span>{authError}</span></div>}
         {loadError && <div className="data-error-banner" role="alert"><span>{loadError}</span><button onClick={() => void loadData()}>Reintentar</button></div>}
         <div className="content-area">
@@ -522,7 +576,7 @@ function FinanceDashboard({ profile, onProfileUpdated, permissions, onSignOut, a
               notify(error instanceof Error ? `No se pudo exportar el reporte: ${error.message}` : 'No se pudo exportar el reporte.')
               })
           }} categories={categories} accounts={accounts} filterType={filterType} setFilterType={setFilterType} filterCategory={filterCategory} setFilterCategory={setFilterCategory} filterAccount={filterAccount} setFilterAccount={setFilterAccount} dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} onNew={handleNew} onLoadReceipts={loadMovementReceipts} canCreateMovement={canCreateMovement} canViewMovements={canViewMovements} onEdit={canEditMovement ? handleEditMovement : undefined} onDelete={canDeleteMovement ? (movement) => void handleDelete('el movimiento', async () => (await loadFinanceService()).deleteMovement(movement.id)) : undefined} />}
-          {page === 'transfers' && <TransfersPage transfers={transfers} onNew={handleNew} onDelete={(transfer) => void handleDelete('la transferencia', async () => (await loadFinanceService()).deleteTransfer(transfer.id))} />}
+          {page === 'transfers' && <TransfersPage transfers={transfers} accounts={accounts} onNew={canCreateTransfer ? handleNew : undefined} onEdit={canEditTransfer ? handleEditTransfer : undefined} onDelete={canDeleteTransfer ? (transfer) => void handleDelete('la transferencia', async () => (await loadFinanceService()).deleteTransfer(transfer.id)) : undefined} />}
           {page === 'accounts' && <AccountsPage accounts={accounts} baseCurrency={baseCurrency} onNew={handleNew} onBank={() => setModal('bank')} onDelete={(account) => void handleDelete('la cuenta', async () => (await loadFinanceService()).deleteAccount(account.id))} onToggle={toggleAccount} />}
           {page === 'calendar' && canViewCalendar && <CalendarView userId={profile.id} obligations={obligations} categories={categories} onRefresh={refreshObligations} loadError={obligationError} />}
           {page === 'calendar' && !canViewCalendar && <section className="panel access-denied"><ShieldAlert size={27} /><h2>Acceso restringido</h2><p>No tienes permiso para gestionar obligaciones.</p><button className="button-secondary" onClick={() => setPage('dashboard')}>Volver al resumen</button></section>}
@@ -534,7 +588,7 @@ function FinanceDashboard({ profile, onProfileUpdated, permissions, onSignOut, a
         </div>
         <footer className="app-footer"><span>© 2026 Finora · Tus finanzas, más claras.</span><span><a href="#privacy">Privacidad</a><a href="#help">Ayuda</a><span className="system-status"><i />{loadError ? 'Conexión pendiente' : 'Sincronizado con Supabase'}</span></span></footer>
       </main>
-      {modal && <FinanceModal key={`${modal}-${editingMovement?.id ?? 'new'}`} kind={modal} movementToEdit={editingMovement ?? undefined} accounts={accounts} categories={categories} banks={banks} currencies={currencies} baseCurrencyCode={baseCurrency?.code ?? 'BOB'} paymentTypes={paymentTypes} onClose={() => { setModal(null); setEditingMovement(null) }} onSave={handleSave} />}
+      {modal && <FinanceModal key={`${modal}-${editingMovement?.id ?? editingTransfer?.id ?? 'new'}`} kind={modal} movementToEdit={editingMovement ?? undefined} transferToEdit={editingTransfer ?? undefined} accounts={accounts} categories={categories} banks={banks} currencies={currencies} baseCurrencyCode={baseCurrency?.code ?? 'BOB'} paymentTypes={paymentTypes} onClose={() => { setModal(null); setEditingMovement(null); setEditingTransfer(null) }} onSave={handleSave} />}
       {profileModalOpen && <ProfileModal profile={profile} onClose={() => setProfileModalOpen(false)} onSave={saveProfile} />}
       {toast && <div className="toast-message"><span>✓</span>{toast}</div>}
       {!['users', 'permissions'].includes(page) && pageAction[page] && <button className="global-add" onClick={handleNew} aria-label={actionLabel[page]}><Plus size={21} /></button>}
@@ -569,7 +623,8 @@ function Dashboard({ accounts, currencies, movements, baseCurrency, onNavigate, 
     && (currencyFilter === 'all' || account.currencyId === currencyFilter))
   const filteredAccountIds = new Set(filteredAccounts.map((account) => account.id))
   const chartStartDate = `${recentMonths[0].key}-01`
-  const reportMovements = movements.filter((movement) => filteredAccountIds.has(movement.accountId)
+  const reportMovements = movements.filter((movement) => operatingMovementType(movement) !== null
+    && filteredAccountIds.has(movement.accountId)
     && (currencyFilter === 'all' || movement.currencyId === currencyFilter)
     && movement.date >= chartStartDate
     && movement.date.slice(0, 7) <= activeMonth)
@@ -590,8 +645,10 @@ function Dashboard({ accounts, currencies, movements, baseCurrency, onNavigate, 
   })
   const conversionReady = missingReportRates.size === 0 && targetRate !== null
   const consolidatedReady = missingConsolidatedRates.size === 0 && targetRate !== null
+  const filteredAccountsReady = targetRate !== null
+    && filteredAccounts.every((account) => getCurrencyRateToBase(account.currencyId, currencies) !== null)
   const convertedSum = (items: Movement[], type: Movement['type']) => items
-    .filter((movement) => movement.type === type)
+    .filter((movement) => operatingMovementType(movement) === type)
     .reduce((sum, movement) => sum + convertAmount(movement.amount, movementRateToBase(movement, currencies)!, targetRate!), 0)
   const thisMonth = reportMovements.filter((movement) => movement.date.slice(0, 7) === activeMonth)
   const income = conversionReady ? convertedSum(thisMonth, 'Ingreso') : 0
@@ -610,7 +667,7 @@ function Dashboard({ accounts, currencies, movements, baseCurrency, onNavigate, 
   const chartIncome = chartData.reduce((sum, item) => sum + item.income, 0)
   const chartExpenses = chartData.reduce((sum, item) => sum + item.expenses, 0)
   const expenseCategories = conversionReady
-    ? Array.from(reportMovements.filter((movement) => movement.type === 'Gasto').reduce((totals, movement) => {
+    ? Array.from(reportMovements.filter((movement) => operatingMovementType(movement) === 'Gasto').reduce((totals, movement) => {
       const current = totals.get(movement.category) ?? 0
       totals.set(movement.category, current + convertAmount(movement.amount, movementRateToBase(movement, currencies)!, targetRate!))
       return totals
@@ -648,14 +705,15 @@ function Dashboard({ accounts, currencies, movements, baseCurrency, onNavigate, 
         expenses: 0,
       }
       const convertedAmount = convertAmount(movement.amount, movementRateToBase(movement, currencies)!, targetRate!)
-      if (movement.type === 'Ingreso') user.income += convertedAmount
-      else user.expenses += convertedAmount
+      if (operatingMovementType(movement) === 'Ingreso') user.income += convertedAmount
+      else if (operatingMovementType(movement) === 'Gasto') user.expenses += convertedAmount
       userSummaryMap.set(id, user)
     })
   }
   const userSummaries = Array.from(userSummaryMap.values(), (user) => ({ ...user, net: user.income - user.expenses }))
     .sort((left, right) => (right.income + right.expenses) - (left.income + left.expenses))
-  const quickMovements = movements.filter((movement) => filteredAccountIds.has(movement.accountId)
+  const quickMovements = movements.filter((movement) => operatingMovementType(movement) !== null
+    && filteredAccountIds.has(movement.accountId)
     && (currencyFilter === 'all' || movement.currencyId === currencyFilter)).slice(0, 5)
   const accountTotal = filteredAccounts.reduce((sum, account) => sum + Math.max(account.balance, 0), 0)
 
@@ -673,11 +731,11 @@ function Dashboard({ accounts, currencies, movements, baseCurrency, onNavigate, 
       <SummaryCard label={`Total consolidado general · ${currencyCode}`} value={consolidatedReady ? money(totalBalance, currencyCode) : 'Configura tasas'} change="" caption={`Todas las cuentas activas, convertidas a ${currencyCode} con tasas actuales de Catálogos`} icon={<Wallet size={19} />} tone="green" />
       <SummaryCard label={`Ingresos del mes · ${currencyCode}`} value={conversionReady ? money(income, currencyCode) : 'Configura tasas'} change="" caption="Según filtros, convertido a la moneda base" icon={<ArrowDownLeft size={20} />} tone="purple" />
       <SummaryCard label={`Gastos del mes · ${currencyCode}`} value={conversionReady ? money(expenses, currencyCode) : 'Configura tasas'} change="" caption="Según filtros, convertido a la moneda base" positive={false} icon={<ArrowUpRight size={20} />} tone="orange" />
-      <SummaryCard label={`Balance neto · ${currencyCode}`} value={conversionReady ? money(income - expenses, currencyCode) : 'Configura tasas'} change="" caption="Ingresos menos gastos según filtros" icon={<CircleDollarSign size={19} />} tone="blue" />
+      <SummaryCard label={`Balance neto · ${currencyCode}`} value={filteredAccountsReady ? money(filteredTotalBalance, currencyCode) : 'Configura tasas'} change="" caption="Saldo actual de cuentas según filtros; incluye transferencias internas" icon={<CircleDollarSign size={19} />} tone="blue" />
     </div>
     <div className="dashboard-grid">
       <section className="panel chart-panel">
-        <div className="panel-heading chart-heading"><div><h2>Flujo de caja</h2><p>Ingresos y gastos de los últimos seis meses ({currencyCode}) · según filtros</p></div><span className="filter-button">Últimos 6 meses</span></div>
+        <div className="panel-heading chart-heading"><div><h2>Flujo de caja</h2><p>Ingresos y gastos operativos de los últimos seis meses ({currencyCode}) · sin transferencias</p></div><span className="filter-button">Últimos 6 meses</span></div>
         <div className="chart-legend"><span><i className="legend-income" /> Ingresos <b>{conversionReady ? money(chartIncome, currencyCode) : '—'}</b></span><span><i className="legend-expense" /> Gastos <b>{conversionReady ? money(chartExpenses, currencyCode) : '—'}</b></span></div>
         <div className="cashflow-chart">{conversionReady ? <Suspense fallback={<div className="chart-placeholder" />}><CashflowChart data={chartData} currency={currencyCode} /></Suspense> : <p className="currency-warning">El gráfico estará disponible cuando configures las tasas necesarias.</p>}</div>
         <div className="chart-footnote"><span><i />Ingresos <i className="lavender-dot" />Gastos</span><button className="text-button" onClick={() => onNavigate('movements')}>Ver reporte detallado <span>→</span></button></div>
@@ -687,8 +745,8 @@ function Dashboard({ accounts, currencies, movements, baseCurrency, onNavigate, 
         <div className="account-total"><strong>{conversionReady ? money(filteredTotalBalance, currencyCode) : 'Configura tasas'}</strong><span>Saldo de cuentas filtradas convertido a {currencyCode}</span></div>
         <div className="account-bars">{filteredAccounts.slice(0, 4).map((account) => {
           const accountRate = getCurrencyRateToBase(account.currencyId, currencies)
-          const conversionRate = accountRate !== null && targetRate !== null ? accountRate / targetRate : null
-          const equivalent = conversionRate !== null ? account.balance * conversionRate : null
+          const conversionRate = accountRate !== null && targetRate !== null ? roundExchangeRate(accountRate / targetRate) : null
+          const equivalent = conversionRate !== null ? convertAmount(account.balance, accountRate ?? 1, targetRate ?? 1) : null
           const originalAmount = money(account.balance, account.currency)
           const tooltip = equivalent === null
             ? `Falta configurar la tasa de ${account.currency} o ${currencyCode} en Catálogos.`
@@ -748,11 +806,31 @@ function MovementsPage({ movements, categories, accounts, filterType, setFilterT
   </div>
 }
 
-function TransfersPage({ transfers, onNew, onDelete }: { transfers: Transfer[]; onNew: () => void; onDelete: (transfer: Transfer) => void }) {
+function TransfersPage({ transfers, accounts, onNew, onEdit, onDelete }: {
+  transfers: Transfer[]
+  accounts: Account[]
+  onNew?: () => void
+  onEdit?: (transfer: Transfer) => void
+  onDelete?: (transfer: Transfer) => void
+}) {
+  const [detail, setDetail] = useState<Transfer | null>(null)
   return <div className="inner-page">
-    <div className="transfer-hero panel"><div className="transfer-hero-copy"><div className="summary-icon blue"><ArrowLeftRight size={21} /></div><div><h2>Transfiere entre tus cuentas</h2><p>Registra transferencias entre cuentas existentes.</p></div></div><button className="button-primary" onClick={onNew}><Plus size={17} /> Nueva transferencia</button></div>
+    <div className="transfer-hero panel"><div className="transfer-hero-copy"><div className="summary-icon blue"><ArrowLeftRight size={21} /></div><div><h2>Transfiere entre tus cuentas</h2><p>Registra transferencias entre cuentas existentes.</p></div></div>{onNew && <button className="button-primary" onClick={onNew}><Plus size={17} /> Nueva transferencia</button>}</div>
     <section className="panel transfer-steps"><div className="panel-heading"><div><h2>Cómo funciona</h2><p>Las transferencias se guardan en la tabla de transferencia.</p></div></div><div className="steps-row"><div><span>01</span><b>Elige el origen</b><small>Selecciona desde qué cuenta transferir.</small></div><i>→</i><div><span>02</span><b>Selecciona el destino</b><small>Elige una cuenta en la misma moneda.</small></div><i>→</i><div><span>03</span><b>Confirma el monto</b><small>Revisa los detalles antes de guardar.</small></div></div></section>
-    <section className="panel transactions-panel"><div className="panel-heading"><div><h2>Historial de transferencias</h2><p>{transfers.length} transferencias registradas</p></div></div><div className="transfer-list">{transfers.length ? transfers.map((item) => <div className="transfer-item" key={item.id}><span className="transfer-icon"><ArrowLeftRight size={18} /></span><div className="transfer-description"><strong>{item.description}</strong><small>{item.from} <span>→</span> {item.to}</small></div><time>{new Date(`${item.date}T12:00:00`).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })}</time><b>{money(item.amount, item.currency)}</b><span className="completed-pill">Registrada</span><button className="icon-button" aria-label="Eliminar transferencia" onClick={() => onDelete(item)}><Trash2 size={16} /></button></div>) : <div className="empty-state"><div><ArrowLeftRight size={22} /></div><strong>Aún no hay transferencias</strong><span>Los registros de Supabase aparecerán aquí.</span><button className="text-button" onClick={onNew}>Crear primera transferencia →</button></div>}</div></section>
+    <section className="panel transactions-panel"><div className="panel-heading"><div><h2>Historial de transferencias</h2><p>{transfers.length} transferencias registradas</p></div></div><div className="transfer-list">{transfers.length ? transfers.map((item) => <div className="transfer-item" key={item.id}><span className="transfer-icon"><ArrowLeftRight size={18} /></span><div className="transfer-description"><strong>{item.description}</strong><small>{item.from} <span>→</span> {item.to}</small></div><time>{new Date(`${item.date}T12:00:00`).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })}</time><b>{money(item.amount, item.currency)}</b><span className="completed-pill">Registrada</span><div className="movement-actions"><button className="icon-button" aria-label={`Ver transferencia: ${item.description}`} title="Ver detalle" onClick={() => setDetail(item)}><Eye size={16} /></button>{onEdit && <button className="icon-button" aria-label={`Editar transferencia: ${item.description}`} title="Editar" onClick={() => onEdit(item)}><Pencil size={15} /></button>}{onDelete && <button className="icon-button" aria-label={`Eliminar transferencia: ${item.description}`} title="Eliminar" onClick={() => onDelete(item)}><Trash2 size={16} /></button>}</div></div>) : <div className="empty-state"><div><ArrowLeftRight size={22} /></div><strong>Aún no hay transferencias</strong><span>Los registros de Supabase aparecerán aquí.</span>{onNew && <button className="text-button" onClick={onNew}>Crear primera transferencia →</button>}</div>}</div></section>
+    {detail && <div className="modal-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setDetail(null) }}>
+      <section className="modal-card movement-detail-modal" role="dialog" aria-modal="true" aria-labelledby="transfer-detail-title">
+        <div className="modal-heading"><div><div className="eyebrow">FINORA · TRANSFERENCIA</div><h2 id="transfer-detail-title">Detalle de la transferencia</h2></div><button className="icon-button" onClick={() => setDetail(null)} aria-label="Cerrar detalle"><X size={20} /></button></div>
+        <dl className="movement-detail-list">
+          <div><dt>Descripción</dt><dd>{detail.description}</dd></div>
+          <div><dt>Importe</dt><dd>{money(detail.amount, detail.currency)}</dd></div>
+          <div><dt>Fecha</dt><dd>{new Date(`${detail.date}T12:00:00`).toLocaleDateString('es', { day: '2-digit', month: 'long', year: 'numeric' })}</dd></div>
+          <div><dt>Cuenta de origen</dt><dd>{accounts.find((account) => account.id === detail.fromId)?.name ?? detail.from}</dd></div>
+          <div><dt>Cuenta de destino</dt><dd>{accounts.find((account) => account.id === detail.toId)?.name ?? detail.to}</dd></div>
+        </dl>
+        <div className="modal-actions"><button className="button-secondary" onClick={() => setDetail(null)}>Cerrar</button></div>
+      </section>
+    </div>}
   </div>
 }
 
@@ -812,13 +890,15 @@ function CatalogsPage({ categories, paymentTypes, currencies, baseCurrency, tab,
           {tab === 'Categorías' && categories.map((item) => <div className="catalog-row" key={item.id}><span className={`catalog-row-icon ${item.color}`}>{icon(item.icon)}</span><div className="catalog-name"><strong>{item.name}</strong><small>{item.description || 'Categoría'}</small></div><span className={`type-pill ${item.type === 'Ingreso' ? 'income' : 'expense'}`}>{item.type}</span><button className="icon-button" aria-label={item.active ? 'Desactivar categoría' : 'Activar categoría'} title={item.active ? 'Desactivar categoría' : 'Activar categoría'} onClick={() => onToggleCategory(item)}>{item.active ? <span>●</span> : <span>○</span>}</button><button className="icon-button" aria-label="Eliminar categoría" onClick={() => onDeleteCategory(item)}><Trash2 size={16} /></button></div>)}
           {tab === 'Tipos de pago' && paymentTypes.map((item) => <div className="catalog-row" key={item.id}><span className="catalog-row-icon blue">{icon('credit')}</span><div className="catalog-name"><strong>{item.name}</strong><small>Tipo de pago</small></div><button className="icon-button" aria-label="Eliminar tipo de pago" onClick={() => onDeletePayment(item)}><Trash2 size={16} /></button></div>)}
           {tab === 'Monedas' && currencies.map((item) => {
-            const rateValue = rateDrafts[item.id] ?? (item.isBase ? '1' : item.rateToBase?.toString() ?? '')
+            const usdBobRate = item.code.toUpperCase() === 'USD' && currencies.some((currency) => currency.code.toUpperCase() === 'BOB') && !item.isBase
+            const effectiveRate = getCurrencyRateToBase(item.id, currencies)
+            const rateValue = rateDrafts[item.id] ?? (item.isBase ? '1.00' : effectiveRate?.toFixed(2) ?? '')
             const rate = Number(rateValue)
             return <div className="catalog-row currency-catalog-row" key={item.id}>
               <span className="catalog-row-icon mint">{icon('currency')}</span>
-              <div className="catalog-name"><strong>{item.code} · {item.name}</strong><small>1 {item.code} = {item.isBase ? '1' : item.rateToBase?.toLocaleString('es') ?? '—'} {baseCurrency?.code ?? 'BOB'}</small></div>
+              <div className="catalog-name"><strong>{item.code} · {item.name}</strong><small>1 {item.code} = {item.isBase ? '1.00' : effectiveRate?.toFixed(2) ?? '—'} {baseCurrency?.code ?? 'BOB'}</small></div>
               {item.isBase ? <span className="base-pill">Moneda base · 1:1</span> : <>
-                <label className="currency-rate-editor"><span>Tasa a {baseCurrency?.code ?? 'BOB'}</span><input type="number" min="0.000001" step="0.000001" value={rateValue} aria-label={`Tipo de cambio de ${item.code} a ${baseCurrency?.code ?? 'BOB'}`} onChange={(event) => setRateDrafts((drafts) => ({ ...drafts, [item.id]: event.target.value }))} /></label>
+                <label className="currency-rate-editor"><span>{usdBobRate ? 'USD/BOB · editable' : `Tasa a ${baseCurrency?.code ?? 'BOB'}`}</span><input type="number" min="0.01" step="0.01" value={rateValue} aria-label={`Tipo de cambio de ${item.code} a ${baseCurrency?.code ?? 'BOB'}`} onChange={(event) => setRateDrafts((drafts) => ({ ...drafts, [item.id]: event.target.value }))} /></label>
                 <button className="button-secondary currency-rate-save" disabled={!Number.isFinite(rate) || rate <= 0} onClick={() => onUpdateCurrencyRate(item, rate)}>Guardar tasa</button>
               </>}
               <button className="icon-button" aria-label="Eliminar moneda" onClick={() => onDeleteCurrency(item)}><Trash2 size={16} /></button>

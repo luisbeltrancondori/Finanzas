@@ -1,18 +1,14 @@
 import ExcelJS from 'exceljs'
 import type { Account, Currency, Movement } from '../types/finance'
-import { getCurrencyRateToBase } from './currencyService'
+import { convertAmount, getCurrencyRateToBase, movementRateToBase } from './currencyService'
 
 const headerFill = 'FF256C4C'
 const secondaryFill = 'FFE8F1EC'
 const numberFormat = '#,##0.00;[Red]-#,##0.00'
-const rateFormat = '#,##0.000000'
+const rateFormat = '#,##0.00'
 
 type SummaryTotals = { income: number; expenses: number; balance: number; balanceInReference: number }
 type CurrencyTotals = SummaryTotals
-
-function isValidRate(rate: number | null | undefined): rate is number {
-  return rate !== null && rate !== undefined && Number.isFinite(rate) && rate > 0
-}
 
 function styleHeader(row: ExcelJS.Row) {
   row.height = 24
@@ -65,11 +61,9 @@ export async function exportMovementsToExcel(
   const movementRate = (movement: Movement) => {
     const currency = currencyById.get(movement.currencyId)
     if (currency?.isBase || currency?.id === referenceCurrency?.id || movement.currency.toUpperCase() === referenceCode.toUpperCase()) return 1
-    return isValidRate(movement.exchangeRate)
-      ? movement.exchangeRate
-      : getCurrencyRateToBase(movement.currencyId, currencies) ?? 1
+    return movementRateToBase(movement, currencies) ?? getCurrencyRateToBase(movement.currencyId, currencies) ?? 1
   }
-  const amountInReference = (movement: Movement) => movement.amount * movementRate(movement) / referenceRate
+  const amountInReference = (movement: Movement) => convertAmount(movement.amount, movementRate(movement), referenceRate)
 
   const movementsByAccount = new Map<string, Movement[]>()
   movements.forEach((movement) => {
@@ -87,7 +81,7 @@ export async function exportMovementsToExcel(
       account,
       income,
       expenses,
-      balanceInReference: account.balance * currencyRate / referenceRate,
+      balanceInReference: convertAmount(account.balance, currencyRate, referenceRate),
     }
   })
 
@@ -96,7 +90,7 @@ export async function exportMovementsToExcel(
     const current = currencySummaries.get(account.currencyId) ?? { income: 0, expenses: 0, balance: 0, balanceInReference: 0 }
     const rate = getCurrencyRateToBase(account.currencyId, currencies) ?? 1
     current.balance += account.balance
-    current.balanceInReference += account.balance * rate / referenceRate
+    current.balanceInReference += convertAmount(account.balance, rate, referenceRate)
     currencySummaries.set(account.currencyId, current)
   })
   movements.forEach((movement) => {
@@ -111,7 +105,7 @@ export async function exportMovementsToExcel(
     const bankName = account.bank || 'Sin banco'
     const current = bankSummaries.get(bankName) ?? { income: 0, expenses: 0, balance: 0, balanceInReference: 0 }
     const rate = getCurrencyRateToBase(account.currencyId, currencies) ?? 1
-    current.balanceInReference += account.balance * rate / referenceRate
+    current.balanceInReference += convertAmount(account.balance, rate, referenceRate)
     bankSummaries.set(bankName, current)
   })
   movements.forEach((movement) => {
@@ -243,7 +237,7 @@ export async function exportMovementsToExcel(
       number: account.number || '—',
       currency: account.currency || '—',
       balance: account.balance,
-      equivalent: account.balance * accountRate / referenceRate,
+      equivalent: convertAmount(account.balance, accountRate, referenceRate),
       status: account.active ? 'Activa' : 'Inactiva',
     }
   }))

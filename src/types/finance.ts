@@ -14,6 +14,8 @@ export type Currency = {
   symbol: string
   isBase: boolean
   rateToBase: number | null
+  rateSource?: string
+  rateUpdatedAt?: string | null
 }
 
 export type PaymentType = {

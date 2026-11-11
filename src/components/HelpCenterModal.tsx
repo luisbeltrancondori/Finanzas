@@ -41,7 +41,7 @@ export default function HelpCenterModal({ connectionStatus, onClose }: Props) {
         </div>
 
         <div className="help-center-footer">
-          <span>Finora · Versión 0.0.0</span>
+          <span>Finora · Versión 1.0.0</span>
           <span className={`help-center-status ${connectionStatus === 'Conectado a Supabase' ? 'is-connected' : 'is-pending'}`}>
             <i aria-hidden="true" />{connectionStatus}
           </span>

@@ -1,16 +1,17 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { FileImage, X } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import type { ReactNode } from 'react'
-import { fetchCurrentExchangeRate } from '../services/currencyService'
-import type { Account, Bank, Category, Currency, ModalKind, Movement, PaymentType } from '../types/finance'
+import { getCurrencyRateToBase, movementRateToBase, roundExchangeRate } from '../services/currencyService'
+import type { Account, Bank, Category, Currency, ModalKind, Movement, PaymentType, Transfer } from '../types/finance'
 
 type Values = Record<string, string | number | File | undefined>
 type Props = {
   kind: ModalKind
   movementToEdit?: Movement
+  transferToEdit?: Transfer
   accounts: Account[]
   categories: Category[]
   banks: Bank[]
@@ -75,7 +76,7 @@ function Field({ label, error, children }: { label: string; error?: string; chil
   return <label className="form-field"><span>{label}</span>{children}{error && <small className="field-error">{error}</small>}</label>
 }
 
-export default function FinanceModal({ kind, movementToEdit, accounts, categories, banks, currencies, baseCurrencyCode, paymentTypes, onClose, onSave }: Props) {
+export default function FinanceModal({ kind, movementToEdit, transferToEdit, accounts, categories, banks, currencies, baseCurrencyCode, paymentTypes, onClose, onSave }: Props) {
   const [receipt, setReceipt] = useState<File>()
   const [receiptError, setReceiptError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -113,11 +114,11 @@ export default function FinanceModal({ kind, movementToEdit, accounts, categorie
     <div className="modal-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose() }}>
       <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <div className="modal-heading">
-          <div><div className="eyebrow">FINORA · GESTIÓN</div><h2 id="modal-title">{kind === 'movement' && movementToEdit ? 'Editar movimiento' : modalTitles[kind]}</h2></div>
+          <div><div className="eyebrow">FINORA · GESTIÓN</div><h2 id="modal-title">{kind === 'movement' && movementToEdit ? 'Editar movimiento' : kind === 'transfer' && transferToEdit ? 'Editar transferencia' : modalTitles[kind]}</h2></div>
           <button className="icon-button" onClick={onClose} aria-label="Cerrar" disabled={saving}><X size={20} /></button>
         </div>
         {kind === 'movement' && <MovementForm movement={movementToEdit} accounts={accounts} categories={categories} currencies={currencies} paymentTypes={paymentTypes} receipt={receipt} receiptError={receiptError} saving={saving} onReceipt={selectReceipt} onCancel={onClose} onSubmit={(values) => submit({ ...values, receipt })} />}
-        {kind === 'transfer' && <TransferForm accounts={accounts} saving={saving} onCancel={onClose} onSubmit={(values) => submit(values)} />}
+        {kind === 'transfer' && <TransferForm transfer={transferToEdit} accounts={accounts} saving={saving} onCancel={onClose} onSubmit={(values) => submit(values)} />}
         {kind === 'account' && <AccountForm banks={banks} currencies={currencies} saving={saving} onCancel={onClose} onSubmit={(values) => submit(values)} />}
         {['bank', 'category', 'payment', 'currency'].includes(kind) && <CatalogForm kind={kind} baseCurrencyCode={baseCurrencyCode} saving={saving} onCancel={onClose} onSubmit={(values) => submit(values)} />}
         {saveError && <p className="form-submit-error" role="alert">{saveError}</p>}
@@ -139,10 +140,8 @@ function MovementForm({ movement, accounts, categories, currencies, paymentTypes
   onSubmit: (values: MovementValues) => void
   onCancel: () => void
 }) {
-  const exchangeRateRequest = useRef(0)
-  const exchangeRateEdited = useRef(false)
   const [exchangeRateStatus, setExchangeRateStatus] = useState('')
-  const [exchangeRateStatusType, setExchangeRateStatusType] = useState<'loading' | 'success' | 'warning' | ''>('')
+  const [exchangeRateStatusType, setExchangeRateStatusType] = useState<'success' | 'warning' | ''>('')
   const form = useForm<MovementValues>({
     resolver: zodResolver(movementSchema),
     defaultValues: movement
@@ -154,7 +153,7 @@ function MovementForm({ movement, accounts, categories, currencies, paymentTypes
           account: movement.accountId,
           category: movement.categoryId,
           payment: movement.paymentId,
-          exchangeRate: movement.exchangeRate ?? (currencies.find((currency) => currency.id === movement.currencyId)?.isBase ? 1 : currencies.find((currency) => currency.id === movement.currencyId)?.rateToBase) ?? undefined,
+          exchangeRate: movementRateToBase(movement, currencies) ?? undefined,
         }
       : { type: 'Gasto', date: today },
   })
@@ -166,18 +165,18 @@ function MovementForm({ movement, accounts, categories, currencies, paymentTypes
   const selectedCurrency = currencies.find((currency) => currency.id === selectedAccount?.currencyId)
   const baseCurrency = currencies.find((currency) => currency.isBase)
   const baseCurrencyCode = baseCurrency?.code ?? 'BOB'
-  const baseAmount = Number.isFinite(amount) && Number.isFinite(exchangeRate) && amount > 0 && exchangeRate! > 0
-    ? new Intl.NumberFormat('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount * exchangeRate!)
+  const roundedExchangeRate = Number.isFinite(exchangeRate) ? roundExchangeRate(exchangeRate!) : undefined
+  const baseAmount = Number.isFinite(amount) && roundedExchangeRate !== undefined && amount > 0 && roundedExchangeRate > 0
+    ? new Intl.NumberFormat('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount * roundedExchangeRate)
     : null
   const accountField = form.register('account')
   const exchangeRateField = form.register('exchangeRate', { setValueAs: (value) => value === '' ? undefined : Number(value) })
   const filteredCategories = categories.filter((category) => category.type === type && category.active)
-  const selectAccount = async (accountId: string) => {
-    const requestId = ++exchangeRateRequest.current
-    exchangeRateEdited.current = false
+  const selectAccount = (accountId: string) => {
     const account = accounts.find((item) => item.id === accountId)
     const currency = currencies.find((item) => item.id === account?.currencyId)
-    const fallbackRate = currency?.isBase ? 1 : currency?.rateToBase ?? undefined
+    const fallbackRate = currency ? getCurrencyRateToBase(currency.id, currencies) ?? undefined : undefined
+    const accountIsOfficialUsd = currency?.code.toUpperCase() === 'USD' && baseCurrencyCode.toUpperCase() === 'BOB'
     form.setValue('exchangeRate', fallbackRate, { shouldValidate: true })
 
     if (!currency || currency.isBase) {
@@ -186,20 +185,13 @@ function MovementForm({ movement, accounts, categories, currencies, paymentTypes
       return
     }
 
-    setExchangeRateStatus('Consultando la tasa actual…')
-    setExchangeRateStatusType('loading')
-    try {
-      const liveRate = await fetchCurrentExchangeRate(currency.code, baseCurrencyCode)
-      if (exchangeRateRequest.current !== requestId || exchangeRateEdited.current) return
-      form.setValue('exchangeRate', liveRate, { shouldValidate: true })
-      setExchangeRateStatus(`Tasa actual sugerida por la API: 1 ${currency.code} = ${liveRate.toLocaleString('es')} ${baseCurrencyCode}. Puedes modificarla manualmente.`)
+    if (fallbackRate !== undefined) {
+      setExchangeRateStatus(accountIsOfficialUsd
+        ? `Tasa oficial fija: 1 USD = ${fallbackRate.toFixed(2)} ${baseCurrencyCode}.`
+        : `Tasa configurada: 1 ${currency.code} = ${fallbackRate.toFixed(2)} ${baseCurrencyCode}. Puedes modificarla manualmente.`)
       setExchangeRateStatusType('success')
-    } catch (error) {
-      if (exchangeRateRequest.current !== requestId || exchangeRateEdited.current) return
-      const reason = error instanceof Error ? error.message : 'Error desconocido.'
-      setExchangeRateStatus(fallbackRate
-        ? `No se pudo consultar la API (${reason}). Se conserva la tasa configurada; puedes editarla manualmente.`
-        : `No se pudo consultar la API (${reason}). Ingresa manualmente la tasa para continuar.`)
+    } else {
+      setExchangeRateStatus(`No hay una tasa oficial configurada para ${currency.code}. Ingresa la tasa oficial para continuar.`)
       setExchangeRateStatusType('warning')
     }
   }
@@ -208,7 +200,7 @@ function MovementForm({ movement, accounts, categories, currencies, paymentTypes
       form.setError('exchangeRate', { message: 'Configura una tasa válida para esta moneda.' })
       return
     }
-    onSubmit(values)
+    onSubmit({ ...values, exchangeRate: roundExchangeRate(values.exchangeRate) })
   })
   return (
     <form onSubmit={submitMovement}>
@@ -222,16 +214,15 @@ function MovementForm({ movement, accounts, categories, currencies, paymentTypes
           <Field label="Monto (moneda de cuenta)" error={form.formState.errors.amount?.message}><input type="number" step="0.01" min="0.01" placeholder="0.00" {...form.register('amount', { valueAsNumber: true })} /></Field>
           <Field label="Cuenta" error={form.formState.errors.account?.message}><select {...accountField} onChange={(event) => {
             accountField.onChange(event)
-            void selectAccount(event.target.value)
+            selectAccount(event.target.value)
           }}><option value="">Selecciona una cuenta</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.currency}</option>)}</select></Field>
           <Field label={`Tipo de cambio (1 ${selectedAccount?.currency ?? 'moneda'} = ? ${baseCurrencyCode})`} error={form.formState.errors.exchangeRate?.message}>
-            <input type="number" step="0.000001" min="0.000001" placeholder="Ej. 6.96" readOnly={selectedCurrency?.isBase} {...exchangeRateField} onChange={(event) => {
-              exchangeRateEdited.current = true
+            <input type="number" step="0.01" min="0.01" placeholder="Ej. 6.96" readOnly={selectedCurrency?.isBase} {...exchangeRateField} onChange={(event) => {
               exchangeRateField.onChange(event)
               setExchangeRateStatus('Tasa ingresada manualmente.')
               setExchangeRateStatusType('success')
             }} />
-            <small className="field-hint">{selectedCurrency?.isBase ? 'La moneda base usa una tasa de 1.' : `Tasa en unidades de ${baseCurrencyCode} por cada unidad de la moneda del movimiento.`}</small>
+            <small className="field-hint">{selectedCurrency?.isBase ? 'La moneda base usa una tasa de 1.' : selectedCurrency?.code.toUpperCase() === 'USD' && baseCurrencyCode.toUpperCase() === 'BOB' ? 'Se aplica la tasa USD/BOB configurada en Catálogos (11.71 por defecto).' : `Tasa en unidades de ${baseCurrencyCode} por cada unidad de la moneda del movimiento.`}</small>
             {exchangeRateStatus && <small className={`currency-rate-status ${exchangeRateStatusType}`} role="status">{exchangeRateStatus}</small>}
             {baseAmount !== null && <small className="currency-equivalent-preview" aria-live="polite">Equivalente a: {baseCurrency?.symbol || 'BS'} {baseAmount} {baseCurrencyCode}</small>}
           </Field>
@@ -252,13 +243,19 @@ function MovementForm({ movement, accounts, categories, currencies, paymentTypes
   )
 }
 
-function TransferForm({ accounts, saving, onSubmit, onCancel }: {
+function TransferForm({ transfer, accounts, saving, onSubmit, onCancel }: {
+  transfer?: Transfer
   accounts: Account[]
   saving: boolean
   onSubmit: (values: TransferValues) => void
   onCancel: () => void
 }) {
-  const form = useForm<TransferValues>({ resolver: zodResolver(transferSchema), defaultValues: { date: today } })
+  const form = useForm<TransferValues>({
+    resolver: zodResolver(transferSchema),
+    defaultValues: transfer
+      ? { from: transfer.fromId, to: transfer.toId, amount: transfer.amount, date: transfer.date, description: transfer.description }
+      : { date: today },
+  })
   return (
     <form onSubmit={form.handleSubmit((values) => {
       if (values.from === values.to) {
