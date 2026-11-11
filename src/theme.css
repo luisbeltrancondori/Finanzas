@@ -1,0 +1,83 @@
+.dashboard-analytics{display:grid;gap:16px;margin-top:17px}
+.dashboard-analytics .analytics-grid{margin-top:0}
+.user-report-card{padding:18px 19px;overflow:hidden}
+.user-report-heading{margin-bottom:14px}
+.user-report-scroll{width:100%;overflow-x:auto}
+.user-report-table{width:100%;border-collapse:collapse;white-space:nowrap;text-align:right}
+.user-report-table th,.user-report-table td{padding:11px 12px;border-bottom:1px solid #eef0f2;font-size:10px}
+.user-report-table th{color:#8e9690;font-size:8px;font-weight:680;letter-spacing:.04em}
+.user-report-table th:first-child,.user-report-table td:first-child{text-align:left;padding-left:4px}
+.user-report-table td:first-child{display:table-cell}
+.user-report-table td:first-child strong,.user-report-table td:first-child small{display:block}
+.user-report-table td:first-child strong{color:#3a443e;font-size:10px}
+.user-report-table td:first-child small{margin-top:4px;color:#939b95;font-size:9px}
+.user-report-table td{color:#5f6962}
+.user-report-table tfoot th{border-bottom:0;border-top:1px solid #e7ebe8;color:#38443c;font-size:9px}
+.user-report-table .positive-net{color:#288253;font-weight:700}
+.user-report-table .negative-net{color:#bf654e;font-weight:700}
+.user-report-empty{margin:0;padding:24px 12px;color:#969e98;font-size:10px;text-align:center}
+
+.theme-toggle{border:1px solid #e8ece9}
+.theme-toggle:hover{background:#edf5f0;color:#256c4c}
+
+.app-shell[data-theme="dark"]{background:#111714;color:#e3eae6;color-scheme:dark}
+.app-shell[data-theme="dark"] :is(div,p,span,a,label,li,th,td,strong,b,small,h1,h2,h3,h4,button){color:#d5ded8}
+.app-shell[data-theme="dark"] :is(.sidebar,.topbar,.summary-card,.panel,.upgrade-card,.period-label,.button-secondary,.notification-popover,.modal-card,.help-center-modal,.users-panel,.catalog-panel,.filter-panel,.table-wrap,.account-card,.transfer-card,.calendar-card,.permission-card,.role-card,.chart-panel,.account-overview,.user-report-card){background-color:#1b2420;border-color:#303b35;color:#e3eae6}
+.app-shell[data-theme="dark"] :is(.sidebar,.topbar,.app-footer){border-color:#303b35}
+.app-shell[data-theme="dark"] :is(.app-footer,.main-area){background:#111714;color:#aab5ae}
+.app-shell[data-theme="dark"] :is(h1,h2,h3,h4,strong,b,th,td,.page-heading h1,.breadcrumb b,.workspace-copy strong,.profile-copy strong,.nav-link,.filter-title,.filter-grid label,.summary-label,.summary-value,.panel-heading h2,.account-bar-head,.section-title-row h2,.users-intro h2,.users-table-heading h2,.calendar-intro h2,.calendar-day-number,.help-center-brand h2,.help-center-contact h3,.help-center-contact-row strong,.help-center-contact-row a,.permission-group-title,.catalog-tab,.modal-heading h2){color:#e3eae6}
+.app-shell[data-theme="dark"] :is(p,small,.page-heading p,.breadcrumb,.workspace-copy small,.profile-copy small,.nav-caption,.muted,.upgrade-card p,.analytics-heading p,.summary-caption,.panel-heading p,.account-base-rate-note,.section-title-row p,.users-intro p,.users-table-heading p,.notification-item-copy small,.filter-title span,.calendar-intro p,.help-center-description p,.help-center-footer,.help-center-contact-row small,.calendar-empty,.empty-table,.user-report-empty){color:#a1ada5}
+.app-shell[data-theme="dark"] :is(.nav-link:hover,.button-secondary:hover,.icon-button:hover,.sidebar-collapse,.workspace-switch,.search-box,.dashboard-filter select,.filter-grid input,.filter-grid select,.users-search,.form-field input,.form-field select,.form-field textarea,.login-input-wrap,.period-label,.notification-item,.calendar-day,.calendar-obligation-card,.account-bar-item,.users-table tr,.movement-table tr){background-color:#202b25;color:#e3eae6;border-color:#35433b}
+.app-shell[data-theme="dark"] :is(input,select,textarea){background-color:#17201b;color:#e3eae6;border-color:#35433b}
+.app-shell[data-theme="dark"] input::placeholder,.app-shell[data-theme="dark"] textarea::placeholder{color:#819087}
+.app-shell[data-theme="dark"] select option{background:#1b2420;color:#e3eae6}
+.app-shell[data-theme="dark"] :is(.nav-link.active,.nav-count,.upgrade-icon,.summary-icon,.analytics-icon,.calendar-icon,.users-icon,.permissions-intro-icon,.account-color){filter:brightness(.85)}
+.app-shell[data-theme="dark"] :is(.nav-link.active,.nav-link:hover){background:#233b2e;color:#8bd2ad}
+.app-shell[data-theme="dark"] :is(.bank-card,.add-account-card){background-image:none;background-color:#1b2420;border-color:#303b35;color:#e3eae6}
+.app-shell[data-theme="dark"] :is(.accounts-summary-strip,.accounts-tip,.catalog-row,.catalog-tabs,.catalog-content,.transfer-hero,.transfer-steps,.transfer-list,.permissions-group,.permissions-footer,.permissions-toolbar,.profile-password-divider,.profile-password-divider,.obligation-card,.calendar-view-switch,.calendar-obligations-heading,.calendar-panel,.calendar-obligations){background-color:#1b2420;border-color:#303b35;color:#d5ded8}
+.app-shell[data-theme="dark"] .calendar-view-switch{background:#202b25}
+.app-shell[data-theme="dark"] .calendar-view-switch button.selected{background:#2b3b32;color:#8bd2ad}
+.app-shell[data-theme="dark"] .calendar-event{background:#263b2e;color:#91d2aa}
+.app-shell[data-theme="dark"] .calendar-event.paid{background:#2b302d;color:#a1aaa4}
+.app-shell[data-theme="dark"] :is(.filter-button,.category-tag,.type-pill,.currency-badge,.base-pill,.users-role,.user-status){background-color:#28352e;border-color:#35433b;color:#c5d0c8}
+.app-shell[data-theme="dark"] .calendar-error,.app-shell[data-theme="dark"] .data-error-banner,.app-shell[data-theme="dark"] .users-error{background:#382a25;border-color:#684538;color:#f0b29c}
+.app-shell[data-theme="dark"] :is(.permission-check-row,.catalog-row,.transfer-row,.accounts-summary-strip>div,.calendar-obligations-heading){border-color:#303b35}
+.app-shell[data-theme="dark"] .chart-legend,.app-shell[data-theme="dark"] .chart-footnote>span,.app-shell[data-theme="dark"] .account-bar-head{color:#aab5ae}
+.app-shell[data-theme="dark"] .account-total span{color:#a1ada5}
+.app-shell[data-theme="dark"] .all-accounts-button{border-color:#303b35;color:#85cba4}
+.app-shell[data-theme="dark"] .bar-track{background:#2c3731}
+.app-shell[data-theme="dark"] .table-pagination{border-color:#303b35;color:#aab5ae}
+.app-shell[data-theme="dark"] .table-pagination button{background:#202b25;border-color:#35433b;color:#c5d0c8}
+.app-shell[data-theme="dark"] .segmented-control button.selected{background:#263b2e;color:#8bd2ad}
+.app-shell[data-theme="dark"] .catalog-tabs button.selected{background:#263b2e;color:#8bd2ad}
+.app-shell[data-theme="dark"] .notification-badge{color:#fff}
+.app-shell[data-theme="dark"] :is(.topbar,.sidebar,.app-footer,.users-table th,.movement-table th,.filter-title,.notification-popover-heading,.help-center-footer,.calendar-toolbar,.modal-heading){border-color:#303b35}
+.app-shell[data-theme="dark"] :is(.users-table th,.movement-table th,.analytics-legend button:hover,.user-report-table thead,.user-report-table tfoot){background:#202b25;color:#c5d0c8}
+.app-shell[data-theme="dark"] :is(.user-report-table td,.user-report-table th,.movement-table td,.users-table td,.movement-detail-list>div,.calendar-day,.notification-item){border-color:#303b35}
+.app-shell[data-theme="dark"] :is(.notification-item-copy strong,.calendar-obligation-card strong,.calendar-day .day-number,.summary-card .summary-label,.user-report-table td){color:#d5ded8}
+.app-shell[data-theme="dark"] :is(.profile-modal,.users-modal,.obligation-modal,.movement-detail-modal,.help-center-modal){box-shadow:0 24px 70px #0008}
+.app-shell[data-theme="dark"] .help-center-description{background:#202b25;border-color:#303b35}
+.app-shell[data-theme="dark"] .help-center-product span{color:#a1ada5}
+.app-shell[data-theme="dark"] .help-center-contact-icon{background:#26372d;color:#81c9a1}
+.app-shell[data-theme="dark"] .help-center-whatsapp{background:#26372d!important;color:#81c9a1!important}
+.app-shell[data-theme="dark"] .search-box input{background:transparent}
+.app-shell[data-theme="dark"] .topbar-avatar{background:#302c40;color:#c5bafa}
+.app-shell[data-theme="dark"] .chart-grid line,.app-shell[data-theme="dark"] .recharts-cartesian-grid line{stroke:#35413a!important}
+.app-shell[data-theme="dark"] .recharts-default-tooltip{background:#202b25!important;border-color:#35433b!important;color:#e3eae6!important}
+.app-shell[data-theme="dark"] .recharts-tooltip-item,.app-shell[data-theme="dark"] .recharts-tooltip-label{color:#e3eae6!important}
+.app-shell[data-theme="dark"] .theme-toggle{border-color:#36443c;background:#202b25;color:#e9c879}
+.app-shell[data-theme="dark"] .theme-toggle:hover{background:#29382f;color:#f2d794}
+.app-shell[data-theme="dark"] .support-link{color:#adb8b0}
+.app-shell[data-theme="dark"] .reset-filters,.app-shell[data-theme="dark"] .text-button{color:#85cba4}
+.app-shell[data-theme="dark"] .dashboard-filter select{background:#17201b}
+.app-shell[data-theme="dark"] .app-footer a{color:#aab5ae}
+.app-shell[data-theme="dark"] .calendar-day.outside-month{color:#69766d}
+.app-shell[data-theme="dark"] .calendar-day.selected{background:#254632;border-color:#438462}
+.app-shell[data-theme="dark"] .calendar-day.today{box-shadow:inset 0 0 0 1px #58a579}
+.app-shell[data-theme="dark"] .analytics-empty,.app-shell[data-theme="dark"] .users-empty{color:#9ba89f}
+.app-shell[data-theme="dark"] .user-report-table{color:#d5ded8}
+.app-shell[data-theme="dark"] .user-report-table td small{color:#9ba89f}
+.app-shell[data-theme="dark"] .positive-net{color:#7ed2a4!important}
+.app-shell[data-theme="dark"] .negative-net{color:#f09b83!important}
+@media(prefers-reduced-motion:reduce){.analytics-loading{animation:none}}
+@media(max-width:620px){.dashboard-analytics{gap:12px;margin-top:13px}.user-report-card{padding:15px 13px}.user-report-table th,.user-report-table td{padding:10px 8px;font-size:9px}}

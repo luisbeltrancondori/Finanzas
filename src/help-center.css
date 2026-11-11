@@ -1,0 +1,27 @@
+.help-center-overlay{z-index:60}
+.help-center-modal{position:relative;width:min(510px,100%);overflow:hidden;border:1px solid #e8ece9;border-radius:16px;background:#fff;box-shadow:0 24px 70px #17231f35}
+.help-center-modal::before{position:absolute;inset:0 0 auto;height:5px;background:#256c4c;content:""}
+.help-center-close{position:absolute;top:15px;right:15px;color:#7e8782}
+.help-center-brand{display:flex;align-items:center;gap:14px;padding:27px 26px 21px}
+.help-center-logo{width:52px;height:52px;flex:none;display:grid;place-items:center;border-radius:14px;background:#eaf4ee;color:#256c4c}
+.help-center-brand .eyebrow{margin-bottom:6px;color:#7d8f85;font-size:9px;font-weight:750;letter-spacing:.11em}
+.help-center-brand h2{max-width:350px;margin:0;padding-right:25px;color:#2c3932;font-size:15px;line-height:1.35}
+.help-center-description{padding:18px 26px;background:#f7faf8;border-top:1px solid #edf1ee;border-bottom:1px solid #edf1ee}
+.help-center-product{display:flex;align-items:center;gap:8px;color:#256c4c}.help-center-product strong{font-size:13px}.help-center-product span{color:#87918b;font-size:10px}
+.help-center-description p{margin:11px 0 0;color:#626e67;font-size:11px;line-height:1.7}
+.help-center-contact{padding:20px 26px 17px}
+.help-center-contact h3{margin:0 0 12px;color:#3a463f;font-size:11px}
+.help-center-contact-row{display:flex;align-items:center;gap:11px;min-height:50px}
+.help-center-contact-row+.help-center-contact-row{margin-top:7px}
+.help-center-contact-icon{width:34px;height:34px;flex:none;display:grid;place-items:center;border-radius:10px;background:#f0f5f2;color:#347757}
+.help-center-contact-row>div{min-width:0;display:grid;gap:4px}
+.help-center-contact-row small{color:#929a95;font-size:9px}
+.help-center-contact-row a,.help-center-contact-row strong{color:#3f4b44;font-size:11px;font-weight:650;text-decoration:none}
+.help-center-contact-row a:hover{color:#256c4c}
+.help-center-contact-row .help-center-whatsapp{display:flex;align-items:center;gap:5px;margin-left:auto;padding:8px 10px;border-radius:8px;background:#eaf4ee;color:#256c4c;font-size:10px}
+.help-center-footer{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:13px 26px;border-top:1px solid #eef1ef;color:#929a95;font-size:9px}
+.help-center-status{display:inline-flex;align-items:center;gap:6px;color:#a47738}
+.help-center-status i{width:7px;height:7px;border-radius:50%;background:#c7954c}
+.help-center-status.is-connected{color:#347757}
+.help-center-status.is-connected i{background:#3a9a69}
+@media(max-width:520px){.help-center-modal{border-radius:13px}.help-center-brand,.help-center-description,.help-center-contact{padding-left:19px;padding-right:19px}.help-center-brand h2{font-size:13px}.help-center-footer{align-items:flex-start;flex-direction:column;padding-left:19px;padding-right:19px}.help-center-contact-row .help-center-whatsapp span{display:none}.help-center-contact-row .help-center-whatsapp{padding:9px}}
